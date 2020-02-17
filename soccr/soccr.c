@@ -352,11 +352,12 @@ static int get_queue(int sk, int queue_id,
 		}
 
 		ret = recv(sk, buf, len + 1, MSG_PEEK | MSG_DONTWAIT);
+		printf("ret=:%d\n",ret);
 		if (ret != len)
 			goto err_recv;
 	} else
 		buf = NULL;
-
+	//printf("!!!!!!!!!!!!!!!!%s",buf);
 	*bufp = buf;
 	return 0;
 
