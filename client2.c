@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include "criu_HA.h"
-//#include "./soccr/soccr.c"
+
 #include <errno.h>
 #include <asm/types.h>
 #include <pthread.h>
@@ -22,12 +22,12 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 
 int restore_sockaddr(union libsoccr_addr *sa,
-		int family, u32 pb_port, u32 *pb_addr, u32 ifindex)
+		int family, uint16_t pb_port, u32 *pb_addr, u32 ifindex)
 {
 	memset(sa, 0, sizeof(*sa));
 	if (family == AF_INET) {
 		sa->v4.sin_family = AF_INET;
-		sa->v4.sin_port = htons(pb_port);
+		sa->v4.sin_port = pb_port;
 		memcpy(&sa->v4.sin_addr.s_addr, pb_addr, sizeof(sa->v4.sin_addr.s_addr));
 		return sizeof(sa->v4);
 	}
@@ -144,6 +144,7 @@ int libsoccr_restore_HA(struct libsoccr_sk *sk,
 }
 
 
+
 static int restore_tcp_conn_state_HA(int fd,struct libsoccr_sk *socr,dt_info* data)
 {
 	int aux;
@@ -161,15 +162,18 @@ static int restore_tcp_conn_state_HA(int fd,struct libsoccr_sk *socr,dt_info* da
 	printf("snd_wnd:%u rcv_wnd:%u\n",data->snd_wnd,data->rcv_wnd);
 	printf("timestamp:%u\n",data->timestamp);
 	struct sockaddr_in clinetaddr,serveraddr;
-	serveraddr.sin_addr.s_addr = inet_addr("140.96.29.50");
-	clinetaddr.sin_addr.s_addr = inet_addr("192.168.90.95");
+	//serveraddr.sin_addr.s_addr = inet_addr("140.96.29.50");
+	//clinetaddr.sin_addr.s_addr = inet_addr("192.168.90.95");
+	printf("src_addr:%u\n",data->src_addr);
+	printf("dst_addr:%u\n",data->dst_addr);
+	
 	if (restore_sockaddr(&sa_src,
-				AF_INET, 2552,
-				&clinetaddr.sin_addr.s_addr, 0) < 0)
+				AF_INET, data->src_port,
+				&data->src_addr, 0) < 0)
 		goto err;
 	if (restore_sockaddr(&sa_dst,
-				AF_INET, 8080,
-				&serveraddr.sin_addr.s_addr, 0) < 0)
+				AF_INET, data->dst_port,
+				&data->dst_addr, 0) < 0)
 		goto err;
 
 	libsoccr_set_addr(socr, 1, &sa_src, 0);
@@ -226,7 +230,7 @@ void get_data(dt_info* data_info, char* tmp)
 	printf("id:%u  in_seq:%u  out_seq:%u\n",data_info[0].id,data_info[0].inq_seq,data_info[0].outq_seq);
 }
 
-int restore_one_tcp_HA(int fd,struct dt_info* data)
+int restore_one_tcp_HA(int fd,dt_info* data)
 {
 	struct libsoccr_sk *sk;
 

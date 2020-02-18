@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "types.h": "c",
+        "errno.h": "c",
+        "array": "c",
+        "string": "c",
+        "string.h": "c",
+        "functional": "c",
+        "soccr.c": "cpp",
+        "soccr.h": "c"
+    }
+}

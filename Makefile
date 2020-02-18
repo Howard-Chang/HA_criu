@@ -1,6 +1,6 @@
 SHELL = /bin/bash
 CC = gcc
-CFLAGS = -lnet -lpthread 
+CFLAGS = -lnet -lpthread -g -O0 
 SRC = $(wildcard *.c)
 EXE = $(patsubst %.c, %, $(SRC))
 

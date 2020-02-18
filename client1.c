@@ -83,8 +83,8 @@ char* final_save_data(sk_buf *buf)
     memcpy(send_data,buf->sk_header_data,buf->header_size);
     memcpy(send_data+buf->header_size,buf->sk_queue_data,buf->queue_size);
     printf("buf->queue_size:%d\n",buf->queue_size);
-    buf->sk_queue_data[buf->queue_size]=0;
-    printf("buf->sk_queue_data:%s\n",buf->sk_queue_data);
+    //buf->sk_queue_data[buf->queue_size]=0;
+    //printf("buf->sk_queue_data:%s\n",buf->sk_queue_data);
     //free(buf->sk_header_data);
     //free(buf->sk_queue_data);
     //free(buf);
@@ -96,9 +96,14 @@ void save_sk_data(struct libsoccr_sk_data* data,struct libsoccr_sk* socr,sk_buf*
 
     memcpy(buf->sk_header_data+buf->header_idx,(char*)&id,sizeof(id));
     memcpy(buf->sk_header_data+buf->header_idx+4,(char*)&socr->src_addr->v4.sin_addr.s_addr,4);
-    memcpy(buf->sk_header_data+buf->header_idx+10,(char*)&socr->dst_addr->v4.sin_addr.s_addr,4);
-    memcpy(buf->sk_header_data+buf->header_idx+8,(char*)&socr->src_addr->v4.sin_port,2);
+    printf("src_addr:%u\n",socr->src_addr->v4.sin_addr.s_addr);
+    memcpy(buf->sk_header_data+buf->header_idx+8,(char*)&socr->dst_addr->v4.sin_addr.s_addr,4);
+    printf("dst_addr:%u\n",socr->dst_addr->v4.sin_addr.s_addr);
+    memcpy(buf->sk_header_data+buf->header_idx+12,(char*)&socr->src_addr->v4.sin_port,2);
+    printf("src_port:%u\n",socr->dst_addr->v4.sin_port);
     memcpy(buf->sk_header_data+buf->header_idx+14,(char*)&socr->dst_addr->v4.sin_port,2);
+    printf("dst_port:%u\n",socr->src_addr->v4.sin_port);
+    
     memcpy(buf->sk_header_data+buf->header_idx+16,(char*)data,sizeof(*data));
     //buf->header_idx += HEADER_SIZE;
     //printf("+++++++++buf->queue_size:%d",buf->queue_size);
@@ -144,8 +149,12 @@ static int dump_tcp_conn_state_HA(int fd, int proxy_hd_fd, int proxy_dt_fd, stru
 	}
 	socr->fd = fd;
     set_addr_port(socr);
+    uint32_t src_addr = socr->src_addr->v4.sin_addr.s_addr;
+    uint16_t src_port = socr->src_addr->v4.sin_port;                                                                               
     int ret;
 	ret = libsoccr_save(socr, data, sizeof(*data));
+    socr->src_addr->v4.sin_addr.s_addr = src_addr;
+    socr->src_addr->v4.sin_port = src_port;
 	if (ret < 0) {
 		printf("libsoccr_save() failed with %d\n", ret);
 		return ret;
@@ -155,7 +164,6 @@ static int dump_tcp_conn_state_HA(int fd, int proxy_hd_fd, int proxy_dt_fd, stru
 				ret, (int)sizeof(*data));
 		return ret;
 	}
-    //printf("@@@@@@@@%s",socr->send_queue);
     
 	if (tcp_repair_off(fd) < 0) {
         printf("tcp_repair_off fail.\n");
@@ -198,8 +206,10 @@ void func(int sockfd, int proxy_hd_fd, int proxy_dt_fd, struct libsoccr_sk_data*
         bzero(Buff, sizeof(Buff));
         //sk_buf_packet_init(buf,1);
         buf->header_size = HEADER_SIZE*1;
-        buf->sk_header_data = realloc(buf->sk_header_data,buf->header_size);
-        buf->sk_queue_data = realloc(buf->sk_queue_data,1);
+        //buf->sk_header_data = malloc(buf->sk_header_data,buf->header_size);
+        //buf->sk_queue_data = malloc(buf->sk_queue_data,1);
+        buf->sk_header_data = malloc(100);
+        buf->sk_queue_data = malloc(100);
         buf->queue_size = 0;
         
 		dump_tcp_conn_state_HA(sockfd,proxy_hd_fd,proxy_dt_fd,data,buf);
