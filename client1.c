@@ -19,7 +19,7 @@ typedef struct sk_buf_packet
     int header_idx;
     int header_size;
     int queue_size;
-    char *sk_header_data;
+    char *sk_header;
     char *sk_queue_data;
 }sk_buf;
 
@@ -36,86 +36,59 @@ int restore_sockaddr(union libsoccr_addr *sa,
 	return -1;
 }
 
-void put_byte_4(unsigned char* buf,uint32_t v,int index)
-{
-    buf[index]   = v >> 24;
-    buf[index+1] = v >> 16;
-    buf[index+2] = v >> 8;
-    buf[index+3] = v;	
-}
-
-void put_byte_6(unsigned char* buf,uint64_t v,int index)
-{
-    buf[index]   = v >> 40;
-    buf[index+1] = v >> 32;
-    buf[index+2] = v >> 24;
-    buf[index+3] = v >> 16;
-    buf[index+4] = v >> 8;
-    buf[index+5] = v;
-
-}
-
-uint32_t get_be32(char* buf,int index)
-{
-	return (buf[index] <<  24) | (buf[index+1] << 16) | (buf[index+2] << 8) | buf[index+3];	
-}
-
-void save_sk_header(char *sk_header)
-{
-    uint16_t conn_size = 5;
-    memcpy(sk_header,(char*)&id,sizeof(id));
-    sk_header[4] = 1;
-    sk_header[5] = 0;
-    memcpy(sk_header+6,(char*)&conn_size,sizeof(conn_size));
-    
-}
-
 void sk_buf_packet_init(sk_buf* buf,int conn_size)
 {
     buf->header_size = HEADER_SIZE*conn_size;
-    buf->sk_header_data = realloc(buf->sk_header_data,sizeof(buf->header_size));
+    buf->sk_header = realloc(buf->sk_header,buf->header_size);
     buf->sk_queue_data = realloc(buf->sk_queue_data,1);
+    buf->queue_size = 0;
+    buf->header_idx = 0;
 }
 
 char* final_save_data(sk_buf *buf)
 {
     char *send_data = malloc(buf->header_size+buf->queue_size);
-    memcpy(send_data,buf->sk_header_data,buf->header_size);
+    memcpy(send_data,buf->sk_header,buf->header_size);
     memcpy(send_data+buf->header_size,buf->sk_queue_data,buf->queue_size);
     printf("buf->queue_size:%d\n",buf->queue_size);
-    //buf->sk_queue_data[buf->queue_size]=0;
-    //printf("buf->sk_queue_data:%s\n",buf->sk_queue_data);
-    //free(buf->sk_header_data);
-    //free(buf->sk_queue_data);
-    //free(buf);
     return send_data;
+}
+
+void print_info(struct libsoccr_sk_data* data,struct libsoccr_sk* socr)
+{
+    printf("src_addr:%u\n",socr->src_addr->v4.sin_addr.s_addr);
+    printf("dst_addr:%u\n",socr->dst_addr->v4.sin_addr.s_addr);
+    printf("src_port:%u\n",socr->dst_addr->v4.sin_port);
+    printf("dst_port:%u\n",socr->src_addr->v4.sin_port);
+    printf("buf->timestamp:%u\n",data->timestamp);
+    printf("outq_len:%d inq_len:%d\n",data->outq_len,data->inq_len);
+    printf("unsq_len:%u",data->unsq_len);
+}
+
+void save_sk_header(sk_buf* buf,uint16_t conn_size)
+{
+    buf->sk_header[0]=1;
+    buf->sk_header[1]=0;
+    memcpy(buf->sk_header+2,(char*)&conn_size,2);
 }
 
 void save_sk_data(struct libsoccr_sk_data* data,struct libsoccr_sk* socr,sk_buf* buf)
 {
-
-    memcpy(buf->sk_header_data+buf->header_idx,(char*)&id,sizeof(id));
-    memcpy(buf->sk_header_data+buf->header_idx+4,(char*)&socr->src_addr->v4.sin_addr.s_addr,4);
-    printf("src_addr:%u\n",socr->src_addr->v4.sin_addr.s_addr);
-    memcpy(buf->sk_header_data+buf->header_idx+8,(char*)&socr->dst_addr->v4.sin_addr.s_addr,4);
-    printf("dst_addr:%u\n",socr->dst_addr->v4.sin_addr.s_addr);
-    memcpy(buf->sk_header_data+buf->header_idx+12,(char*)&socr->src_addr->v4.sin_port,2);
-    printf("src_port:%u\n",socr->dst_addr->v4.sin_port);
-    memcpy(buf->sk_header_data+buf->header_idx+14,(char*)&socr->dst_addr->v4.sin_port,2);
-    printf("dst_port:%u\n",socr->src_addr->v4.sin_port);
-    
-    memcpy(buf->sk_header_data+buf->header_idx+16,(char*)data,sizeof(*data));
+    memcpy(buf->sk_header+buf->header_idx+4,(char*)&socr->src_addr->v4.sin_addr.s_addr,4);  
+    memcpy(buf->sk_header+buf->header_idx+8,(char*)&socr->dst_addr->v4.sin_addr.s_addr,4);
+    memcpy(buf->sk_header+buf->header_idx+12,(char*)&socr->src_addr->v4.sin_port,2);
+    memcpy(buf->sk_header+buf->header_idx+14,(char*)&socr->dst_addr->v4.sin_port,2);
+    memcpy(buf->sk_header+buf->header_idx+16,(char*)data,sizeof(*data));
     //buf->header_idx += HEADER_SIZE;
-    //printf("+++++++++buf->queue_size:%d",buf->queue_size);
+    
     buf->sk_queue_data = realloc(buf->sk_queue_data,buf->queue_size+data->outq_len);
     memcpy(buf->sk_queue_data+buf->queue_size,socr->send_queue,data->outq_len);
     buf->queue_size += data->outq_len;
-    printf("outq_len:%d inq_len:%d\n",data->outq_len,data->inq_len);
     
     buf->sk_queue_data = realloc(buf->sk_queue_data,buf->queue_size+data->inq_len);
-    if(data->inq_len)
     memcpy(buf->sk_queue_data+buf->queue_size,socr->recv_queue,data->inq_len);
     buf->queue_size += data->inq_len;
+    //print_info(data,socr);
     
 }
 
@@ -169,10 +142,9 @@ static int dump_tcp_conn_state_HA(int fd, int proxy_hd_fd, int proxy_dt_fd, stru
         printf("tcp_repair_off fail.\n");
 		return -1;
 	}
-    save_sk_header(sk_header);
-    write(proxy_hd_fd, sk_header, sizeof(sk_header));
     
     //if 連線數量達預期..開始存sk queue data.
+    save_sk_header(buf,1);
     save_sk_data(data,socr,buf);
     int len = buf->header_size+buf->queue_size;
 
@@ -185,7 +157,7 @@ static int dump_tcp_conn_state_HA(int fd, int proxy_hd_fd, int proxy_dt_fd, stru
 void func(int sockfd, int proxy_hd_fd, int proxy_dt_fd, struct libsoccr_sk_data* data,sk_buf* buf)
 {
     int ret = 0;
-    char Buff[70];
+    char Buff[80];
     int n;
     for (;;) {
         bzero(Buff, sizeof(Buff));
@@ -204,26 +176,10 @@ void func(int sockfd, int proxy_hd_fd, int proxy_dt_fd, struct libsoccr_sk_data*
             break;
         }
         bzero(Buff, sizeof(Buff));
-        //sk_buf_packet_init(buf,1);
-        buf->header_size = HEADER_SIZE*1;
-        //buf->sk_header_data = malloc(buf->sk_header_data,buf->header_size);
-        //buf->sk_queue_data = malloc(buf->sk_queue_data,1);
-        buf->sk_header_data = malloc(100);
-        buf->sk_queue_data = malloc(100);
-        buf->queue_size = 0;
+        sk_buf_packet_init(buf,1);
+
         
 		dump_tcp_conn_state_HA(sockfd,proxy_hd_fd,proxy_dt_fd,data,buf);
-        /*read(sockfd, buff, sizeof(buff));
-        printf("From Server : %s", buff);
-        if ((strncmp(buff, "exit", 4)) == 0) {
-            printf("Client Exit...\n");
-            break;
-        }*/
-        /*struct libsoccr_sk_data* data = calloc(1,sizeof(struct libsoccr_sk_data));
-        memset(data, 0, sizeof(data));
-        dump_tcp_conn_state(sockfd,data);
-        printf("inq_seq:%u  outq_seq:%u\n",data->inq_seq,data->outq_seq);
-        printf("errno:%d",errno);*/
     }
 }
 int main()
@@ -231,7 +187,6 @@ int main()
     int sockfd, proxy_hd_fd, proxy_dt_fd;
     struct sockaddr_in servaddr, cli_addr, proxy_backup_addr;
     sk_buf *buf;
-    //sk_buf_packet_init(buf,1);
  
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd == -1) {

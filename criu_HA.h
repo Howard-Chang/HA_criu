@@ -3,7 +3,9 @@
 typedef unsigned int u32;
 typedef struct sk_data_info
 {
-    uint32_t id; 
+    uint8_t version;
+	uint8_t type;
+	uint16_t conn_size; 
     uint32_t src_addr;
     uint32_t dst_addr;
     uint16_t src_port;

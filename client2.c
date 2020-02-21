@@ -85,7 +85,6 @@ int libsoccr_restore_HA(struct libsoccr_sk *sk,
 	if (libsoccr_set_sk_data_noq_HA(sk, data, data_size))
 		return -1;
 
-/*************************************************************/
 
 	if (libsoccr_restore_queue_HA(sk, data, sizeof(*data), TCP_RECV_QUEUE, data->recv_queue))
 		return -1;
@@ -143,30 +142,25 @@ int libsoccr_restore_HA(struct libsoccr_sk *sk,
 	return 0;
 }
 
-
-
-static int restore_tcp_conn_state_HA(int fd,struct libsoccr_sk *socr,dt_info* data)
+void print_info(dt_info* data)
 {
-	int aux;
-
-	//struct libsoccr_sk_data data = {};
-	union libsoccr_addr sa_src, sa_dst;
-	//socr = calloc(1,sizeof(struct libsoccr_sk));
-	//socr->fd = fd;
-
-	//data.inq_seq = 2622049721;
-	//data.outq_seq = 1381840090;
-
 	printf("start restore inq_seq : %u outq_seq: %u\n", data->inq_seq,data->outq_seq);
 	printf("inq_len:%u outq_len:%u\n",data->inq_len,data->outq_len);
 	printf("snd_wnd:%u rcv_wnd:%u\n",data->snd_wnd,data->rcv_wnd);
 	printf("timestamp:%u\n",data->timestamp);
+	printf("src_addr:%u\n",data->src_addr);
+	printf("dst_addr:%u\n",data->dst_addr);
+}
+
+static int restore_tcp_conn_state_HA(int fd,struct libsoccr_sk *socr,dt_info* data)
+{
+	int aux;
+	union libsoccr_addr sa_src, sa_dst;
+	print_info(data);
 	struct sockaddr_in clinetaddr,serveraddr;
 	//serveraddr.sin_addr.s_addr = inet_addr("140.96.29.50");
 	//clinetaddr.sin_addr.s_addr = inet_addr("192.168.90.95");
-	printf("src_addr:%u\n",data->src_addr);
-	printf("dst_addr:%u\n",data->dst_addr);
-	
+
 	if (restore_sockaddr(&sa_src,
 				AF_INET, data->src_port,
 				&data->src_addr, 0) < 0)
@@ -189,45 +183,21 @@ err:
 	return -1;
 }
 
-uint32_t get_be32(char* buf,int index)
-{
-	return (buf[index] <<  24) | (buf[index+1] << 16) | (buf[index+2] << 8) | buf[index+3];	
-}
-
-uint16_t get_be16(char* buf,int index)
-{
-	return (buf[index] << 8) | buf[index+1];	
-}
-
-void get_header(hd_info* header_info, char* tmp)
-{
-	memcpy(&header_info->id,tmp,4);
-	header_info->version = tmp[4];
-	header_info->type = tmp[5];
-	memcpy(&header_info->conn_size,tmp+6,2);
-	printf("header_info->id:%u\n",header_info->id);
-	printf("header_info->version:%d\n",header_info->version);
-	printf("header_info->type:%d\n",header_info->type);
-	printf("header_info->conn_size:%u\n",header_info->conn_size);
-	printf("---------------------------\n");
-}
-
 void get_data(dt_info* data_info, char* tmp)
 {
 	printf("dt_info:%ld\n",sizeof(dt_info));
-	//TODO: for loop to get header & data
-	memcpy(&data_info[0],tmp,HEADER_SIZE);
-	data_info[0].send_queue = malloc(data_info[0].outq_len+1);
+	//TODO: for loop to get tcp dump data
+	memcpy(&data_info[0],tmp,HEADER_SIZE);	
+	data_info[0].send_queue = malloc(data_info[0].outq_len+1);  //+1 to print
 	data_info[0].recv_queue = malloc(data_info[0].inq_len+1);
 	memcpy(data_info[0].send_queue,tmp+HEADER_SIZE,data_info[0].outq_len);
 	memcpy(data_info[0].recv_queue,tmp+HEADER_SIZE+data_info[0].outq_len,data_info[0].inq_len);
 	data_info[0].send_queue[data_info[0].outq_len] = 0;
 	data_info[0].recv_queue[data_info[0].inq_len] = 0;
-	
+	printf("timestamp:%u\n",data_info[0].timestamp);
 	printf("proxy2 recv out_queue data:%s\n",data_info[0].send_queue);
 	printf("proxy2 recv in_queue data:%s\n",data_info[0].recv_queue);
-	
-	printf("id:%u  in_seq:%u  out_seq:%u\n",data_info[0].id,data_info[0].inq_seq,data_info[0].outq_seq);
+	printf("conn_size:%u  in_seq:%u  out_seq:%u\n",data_info[0].conn_size,data_info[0].inq_seq,data_info[0].outq_seq);
 }
 
 int restore_one_tcp_HA(int fd,dt_info* data)
@@ -272,11 +242,10 @@ void func(int sockfd)
             printf("Client Exit...\n");
             break;
         }*/
-
     }
 }
 
-hd_info* listen_proxy_pri1(int hd_connfd)
+/*hd_info* listen_proxy_pri1(int hd_connfd)
 {
 	int ret = 0;
 	char recv_hd[8];
@@ -285,22 +254,11 @@ hd_info* listen_proxy_pri1(int hd_connfd)
     char buff[MAX];
     int n;
     for (;;) {
-        //bzero(buff, sizeof(buff));
-		
-		
-        /*printf("Enter the string : ");
-        n = 0;
-        while ((buff[n++] = getchar()) != '\n')
-            ;
-        write(sockfd, buff, sizeof(buff));
-        bzero(buff, sizeof(buff));*/
-        //while(read(sockfd, buff, sizeof(buff))==0);
-		//while(ret = read(sockfd, data, sizeof(*data))==0);
 		ret = read(hd_connfd, recv_hd, 8);
 		if(ret!=0)
 		{
 			memcpy(tmp,recv_hd,8);
-			get_header(header_info,tmp);
+			//get_header(header_info,tmp);
 			bzero(recv_hd, 8);
 		}
 		if(ret == 0)
@@ -314,7 +272,7 @@ hd_info* listen_proxy_pri1(int hd_connfd)
         }
     }
 	return header_info;
-}
+}*/
 
 dt_info* listen_proxy_pri2(int dt_connfd)
 {
@@ -325,17 +283,6 @@ dt_info* listen_proxy_pri2(int dt_connfd)
     char buff[MAX];
     int n;
     for (;;) {
-        //bzero(buff, sizeof(buff));
-		
-		
-        /*printf("Enter the string : ");
-        n = 0;
-        while ((buff[n++] = getchar()) != '\n')
-            ;
-        write(sockfd, buff, sizeof(buff));
-        bzero(buff, sizeof(buff));*/
-        //while(read(sockfd, buff, sizeof(buff))==0);
-		//while(ret = read(sockfd, data, sizeof(*data))==0);
 		ret = read(dt_connfd, recv_dt, 8000);
 		printf("ret:%d\n",ret);
 		if(ret!=0)
@@ -361,7 +308,8 @@ dt_info* listen_proxy_pri2(int dt_connfd)
 void *socketThread1(void *arg)
 {
   int hd_connfd = *((int *)arg);
-  hd_info* hd_data = listen_proxy_pri1(hd_connfd);
+  //hd_info* hd_data = listen_proxy_pri1(hd_connfd);
+  hd_info* hd_data ;
   pthread_exit((void *) hd_data);
 }
 
@@ -424,12 +372,7 @@ int main()
     void *ret1;
 	void *ret2;
 	
-    //Accept call creates a new socket for the incoming connection
-    //addr_size = sizeof serverStorage;
-    //hd_connfd = accept(proxy_hd_fd, (SA*) &proxy_pri_addr, &len);
-	//dt_connfd = accept(proxy_dt_fd, (SA*)&proxy_pri_addr, &len); 
-    //for each client request creates a thread and assign the client request to it to process
-    //so the main thread can entertain next request
+	//Only thread2 work (receive TCP dump data from HA proxy1)
     if( pthread_create(&tid[0], NULL, socketThread1, &hd_connfd) != 0 )
         printf("Failed to create thread1\n");
 	if( pthread_create(&tid[1], NULL, socketThread2, &dt_connfd) != 0 )
@@ -442,25 +385,15 @@ int main()
     hd_info* header = (hd_info*)ret1;
     dt_info* data = (dt_info*)ret2;
 
-
-    // function for chat 
-	//struct libsoccr_sk_data data;
-	//struct libsoccr_sk_data tmp;
-
-    //hd_info* header = listen_proxy_pri1(hd_connfd);
 	printf("final:\n");
-	printf("header_info->id:%u\n",header->id);
-	printf("header_info->version:%d\n",header->version);
-	printf("header_info->type:%d\n",header->type);
-	printf("header_info->conn_size:%u\n",header->conn_size);
-
+	printf("data->conn_size:%u\n",data->conn_size);
 	printf("data->inq_seq:%u\n",data->inq_seq);
 	printf("data->outq_seq:%u\n",data->outq_seq);
+
 	sleep(1);
 	restore_one_tcp_HA(cuju_sockfd,data);
-    //restore_tcp_conn_state_HA(socr,sockfd,&tmp);
 	func(cuju_sockfd);
-    //printf("inq_seq:%u  outq_seq:%u\n",data->inq_seq,data->outq_seq);
+
     //printf("errno:%d",errno);
     // close the socket 
     close(cuju_sockfd);
