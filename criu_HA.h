@@ -1,7 +1,7 @@
 #include "./soccr/soccr.c"
 #include "./soccr/soccr.h"
 typedef unsigned int u32;
-typedef struct sk_data_info
+/*typedef struct sk_data_info
 {
     uint8_t version;
 	uint8_t type;
@@ -22,7 +22,7 @@ typedef struct sk_data_info
 	uint32_t rcv_wscale;
 	uint32_t timestamp;
 
-	uint32_t flags; /* SOCCR_FLAGS_... below */
+	uint32_t flags; // SOCCR_FLAGS_... below 
 	uint32_t snd_wl1;
 	uint32_t snd_wnd;
 	uint32_t max_window;
@@ -30,7 +30,45 @@ typedef struct sk_data_info
 	uint32_t rcv_wup;
     char* send_queue;
     char* recv_queue;
+}dt_info;*/
+
+typedef struct sk_data_info
+{
+    struct sk_hd{
+        uint32_t src_addr;
+        uint32_t dst_addr;
+        uint16_t src_port;
+        uint16_t dst_port;
+        uint32_t state;
+        uint32_t inq_len;
+        uint32_t inq_seq;
+        uint32_t outq_len;
+        uint32_t outq_seq;
+        uint32_t unsq_len;
+        uint32_t opt_mask;
+        uint32_t mss_clamp;
+        uint32_t snd_wscale;
+        uint32_t rcv_wscale;
+        uint32_t timestamp;
+
+        uint32_t flags; /* SOCCR_FLAGS_... below */
+        uint32_t snd_wl1;
+        uint32_t snd_wnd;
+        uint32_t max_window;
+        uint32_t rcv_wnd;
+        uint32_t rcv_wup;
+
+    }sk_hd;
+    char* send_queue;
+    char* recv_queue;
 }dt_info;
+
+typedef struct sk_prefix_info 
+{
+    uint8_t version;
+    uint8_t type;
+    uint16_t conn_size;
+}prefix;
 
 typedef struct sk_header_info 
 {
@@ -50,9 +88,9 @@ static int libsoccr_restore_queue_HA(struct libsoccr_sk *sk, dt_info *data, unsi
 		return -1;
 
 	if (queue == TCP_RECV_QUEUE) {
-		if (!data->inq_len)
+		if (!data->sk_hd.inq_len)
 			return 0;
-		return send_queue(sk, TCP_RECV_QUEUE, buf, data->inq_len);
+		return send_queue(sk, TCP_RECV_QUEUE, buf, data->sk_hd.inq_len);
 	}
 
 	if (queue == TCP_SEND_QUEUE) {
@@ -65,8 +103,8 @@ static int libsoccr_restore_queue_HA(struct libsoccr_sk *sk, dt_info *data, unsi
 		 * acknowledgment can be received for them. These data must be
 		 * restored in repair mode.
 		 */
-		ulen = data->unsq_len;
-		len = data->outq_len - ulen;
+		ulen = data->sk_hd.unsq_len;
+		len = data->sk_hd.outq_len - ulen;
 		if (len && send_queue(sk, TCP_SEND_QUEUE, buf, len))
 			return -2;
 
@@ -129,10 +167,10 @@ static int send_fin_HA(struct libsoccr_sk *sk, dt_info *data,
 	ret = libnet_build_tcp(
 		ntohs(sk->dst_addr->v4.sin_port),		/* source port */
 		ntohs(sk->src_addr->v4.sin_port),		/* destination port */
-		data->inq_seq,			/* sequence number */
-		data->outq_seq - data->outq_len,	/* acknowledgement num */
+		data->sk_hd.inq_seq,			/* sequence number */
+		data->sk_hd.outq_seq - data->sk_hd.outq_len,	/* acknowledgement num */
 		flags,				/* control flags */
-		data->rcv_wnd,			/* window size */
+		data->sk_hd.rcv_wnd,			/* window size */
 		0,				/* checksum */
 		10,				/* urgent pointer */
 		LIBNET_TCP_H + 20,		/* TCP packet size */
