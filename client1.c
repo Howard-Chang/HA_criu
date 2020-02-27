@@ -8,30 +8,18 @@
 #include <errno.h>
 #include <asm/types.h>
 #include "criu_HA.h"
-#define MAX 65535 
 #define PORT 8080 
 #define HEADER_SIZE 84
 #define SA struct sockaddr 
 typedef unsigned int u32;
 
-int restore_sockaddr(union libsoccr_addr *sa,
-		int family, u32 pb_port, u32 *pb_addr, u32 ifindex)
+void print_qdata(dt_info data_info)
 {
-	memset(sa, 0, sizeof(*sa));
-	if (family == AF_INET) {
-		sa->v4.sin_family = AF_INET;
-		sa->v4.sin_port = htons(pb_port);
-		memcpy(&sa->v4.sin_addr.s_addr, pb_addr, sizeof(sa->v4.sin_addr.s_addr));
-		return sizeof(sa->v4);
-	}
-	return -1;
-}
-
-void free_buf(dt_info* buf)
-{
-    free(buf->recv_queue);
-    free(buf->send_queue);
-    free(buf);
+	char out_q[80], in_q[80];
+	snprintf(out_q, data_info.sk_hd.outq_len+1, "%s", data_info.send_queue );
+	snprintf(in_q, data_info.sk_hd.inq_len+1, "%s", data_info.recv_queue );
+	printf("in_q:%s\t", in_q);
+	printf("out_q:%s\n", out_q);
 }
 
 void final_save_data(char *send_data, dt_info *buf,int hd_idx, int q_idx)
@@ -45,11 +33,11 @@ void print_info(struct libsoccr_sk_data* data, struct libsoccr_sk* socr)
 {
     printf("src_addr:%u\n", socr->src_addr->v4.sin_addr.s_addr);
     printf("dst_addr:%u\n", socr->dst_addr->v4.sin_addr.s_addr);
-    printf("src_port:%u\n", socr->dst_addr->v4.sin_port);
-    printf("dst_port:%u\n", socr->src_addr->v4.sin_port);
+    printf("src_port:%u\n", socr->src_addr->v4.sin_port);
+    printf("dst_port:%u\n", socr->dst_addr->v4.sin_port);
     printf("buf->timestamp:%u\n", data->timestamp);
-    printf("outq_len:%d inq_len:%d\n", data->outq_len,data->inq_len);
-    printf("unsq_len:%u", data->unsq_len);
+    printf("outq_len:%u inq_len:%u\n", data->outq_len, data->inq_len);
+    printf("unsq_len:%u\n", data->unsq_len);
 }
 
 void save_sk_header(prefix* pre, uint16_t conn_size)
@@ -73,42 +61,59 @@ void save_sk_data(struct libsoccr_sk_data* data, struct libsoccr_sk* socr, dt_in
 
     buf->recv_queue = malloc(buf->sk_hd.inq_len);
     memcpy(buf->recv_queue,socr->recv_queue,data->inq_len);
-
-    //print_info(data,socr);
+    
+    print_qdata(*buf);
+    
 }
 
-void set_addr_port(struct libsoccr_sk *socr)
+void set_addr_port(struct libsoccr_sk *socr,int idx, union libsoccr_addr *sa_src, union libsoccr_addr *sa_dst)
 {
-    union libsoccr_addr sa_src, sa_dst;
     struct sockaddr_in clinetaddr,serveraddr;
 	serveraddr.sin_addr.s_addr = inet_addr("140.96.29.50");
 	clinetaddr.sin_addr.s_addr = inet_addr("192.168.90.95");
-	if (restore_sockaddr(&sa_src,
-				AF_INET, 2552,
+    bzero(sa_src, sizeof(*sa_src));
+    bzero(sa_dst, sizeof(*sa_dst));
+    
+    if(idx%2==0)
+	{
+        if (restore_sockaddr(sa_src,
+				AF_INET, htons(2552),
 				&clinetaddr.sin_addr.s_addr, 0) < 0)
 		return;
-	if (restore_sockaddr(&sa_dst,
-				AF_INET, 8080,
+	    if (restore_sockaddr(sa_dst,
+				AF_INET, htons(8080),
 				&serveraddr.sin_addr.s_addr, 0) < 0)
 		return;
+    }
+    else
+    {
+        if (restore_sockaddr(sa_src,
+				AF_INET, htons(2553),
+				&clinetaddr.sin_addr.s_addr, 0) < 0)
+		return;
+	    if (restore_sockaddr(sa_dst,
+				AF_INET, htons(8888),
+				&serveraddr.sin_addr.s_addr, 0) < 0)
+		return;
+    }
+    
 
-	libsoccr_set_addr(socr, 1, &sa_src, 0);
-	libsoccr_set_addr(socr, 0, &sa_dst, 0);
+	libsoccr_set_addr(socr, 1, sa_src, 0);
+	libsoccr_set_addr(socr, 0, sa_dst, 0);
 }
 
 static int dump_tcp_conn_state_HA(int fd, struct libsoccr_sk_data* data, prefix* hd, dt_info* buf)
 {
     int ret;
+    union libsoccr_addr sa_src, sa_dst;
 	struct libsoccr_sk *socr = calloc(1, sizeof(struct libsoccr_sk));
     socr->fd = fd;
-
-    set_addr_port(socr);
-    uint32_t src_addr = socr->src_addr->v4.sin_addr.s_addr;
-    uint16_t src_port = socr->src_addr->v4.sin_port;                                                                               
-
+    static int idx = 0;
+    
+    set_addr_port(socr, idx, &sa_src, &sa_dst);
+    idx++;
+    
 	ret = libsoccr_save(socr, data, sizeof(*data));
-    socr->src_addr->v4.sin_addr.s_addr = src_addr;
-    socr->src_addr->v4.sin_port = src_port;
 
 	if (ret < 0) {
 		printf("libsoccr_save() failed with %d\n", ret);
@@ -121,94 +126,119 @@ static int dump_tcp_conn_state_HA(int fd, struct libsoccr_sk_data* data, prefix*
 	}
     
     save_sk_data(data, socr, buf);
-
+    libsoccr_release(socr);
 	return ret;
 }
 
-void dump_send(int sockfd, int proxy_dt_fd, struct libsoccr_sk_data* data, prefix* pre, dt_info* buf)
+void dump_send(int* sockfd, int proxy_dt_fd, struct libsoccr_sk_data* data, prefix* pre, dt_info* buf)
 {
     int hd_idx, len;
     buf = calloc(pre->conn_size, sizeof(*buf));
-
-    if (tcp_repair_on(sockfd) < 0) {
-        printf("tcp_repair_on fail.\n");
-        return;
+    
+    for(int i = 0; i < pre->conn_size; i++)
+    {
+        if (tcp_repair_on(sockfd[i]) < 0) {
+            printf("tcp_repair_on fail.\n");
+            return;
+        }
     }
 
-    for(int i=0; i < pre->conn_size; i++)        // for loop to collect each socket data.
+    for(int i = 0; i < pre->conn_size; i++)        // for loop to collect each socket data.
     {
-		dump_tcp_conn_state_HA(sockfd, data, pre, &buf[i]);
+		dump_tcp_conn_state_HA(sockfd[i], data, pre, &buf[i]);
     }
     
     hd_idx = sizeof(prefix);
-    len = sizeof(prefix)+pre->conn_size*sizeof(struct sk_hd);
+    len = sizeof(prefix) + pre->conn_size*sizeof(struct sk_hd);
     char *send_data = malloc(len);
 
     memcpy(send_data, pre, sizeof(prefix));
 
-    for(int i=0; i < pre->conn_size; i++)        //for loop to store send out buf
+    for(int i = 0; i < pre->conn_size; i++)        //for loop to store send out buf
     {
         send_data = realloc(send_data, len + buf[i].sk_hd.outq_len + buf[i].sk_hd.inq_len);
         final_save_data(send_data, &buf[i], hd_idx, len);
         len += buf[i].sk_hd.inq_len + buf[i].sk_hd.outq_len;
         hd_idx += sizeof(struct sk_hd);
     }
-
-    if (tcp_repair_off(sockfd) < 0) {
-        printf("tcp_repair_off fail.\n");
-        return ;
-	}
-
+    for(int i = 0; i < pre->conn_size; i++)
+    {
+        if (tcp_repair_off(sockfd[i]) < 0) {
+            printf("tcp_repair_off fail.\n");
+            return ;
+        }
+    }
     write(proxy_dt_fd, send_data, len);
     free(send_data);
-    free_buf(buf);
+    free_buf(buf);  //need to decide when to free.
 }
 
-void func(int sockfd, int proxy_dt_fd, struct libsoccr_sk_data* data, prefix* pre, dt_info* buf)
+void func(int *sockfd, int proxy_dt_fd, struct libsoccr_sk_data* data, prefix* pre, dt_info* buf)
 {
     int ret = 0, len = 0, hd_idx = 0;
     char Buff[80];
     int n;
     for (;;) {
+        save_sk_header(pre, 2);
+
         bzero(Buff, sizeof(Buff));
-        printf("Enter the string : ");
+        printf("Enter the string to server1: ");
         n = 0;  
         len = 0;
         while ((Buff[n++] = getchar()) != '\n')
             ;
         n--;
-        write(sockfd, Buff, n);
+        write(sockfd[0], Buff, n);
+        if ((strncmp(Buff, "exit", 4)) == 0) {
+			write(sockfd[1], Buff, n);
+            read(sockfd[0], Buff, sizeof(Buff));
+            read(sockfd[1], Buff, sizeof(Buff));
 
-		if ((strncmp(Buff, "exit", 4)) == 0) {
-			read(sockfd, Buff, sizeof(Buff));
-			printf("sent from server:%s\n",Buff);
+			printf("sent from server1:%s\n",Buff);
             printf("Client Exit...\n");
             break;
         }
+
         bzero(Buff, sizeof(Buff));
-        save_sk_header(pre, 1);
-        dump_send(sockfd,proxy_dt_fd,data,pre,buf);
+        printf("Enter the string to server2: ");
+        n = 0;  
+        len = 0;
+        while ((Buff[n++] = getchar()) != '\n')
+            ;
+        n--;
+        write(sockfd[1], Buff, n);
+        if ((strncmp(Buff, "exit", 4)) == 0) {
+			write(sockfd[0], Buff, n);
+            read(sockfd[0], Buff, sizeof(Buff));
+            read(sockfd[1], Buff, sizeof(Buff));
+
+			printf("sent from server2:%s\n",Buff);
+            printf("Client Exit...\n");
+            break;
+        }
+    
+        dump_send(sockfd, proxy_dt_fd, data, pre, buf);
     }
 }
 int main()
 {
-    int sockfd, proxy_hd_fd, proxy_dt_fd;
+    int sockfd[2], proxy_dt_fd, conn_size = 2;
     struct libsoccr_sk_data* data = calloc(1, sizeof(struct libsoccr_sk_data));
-    struct sockaddr_in servaddr, cli_addr, proxy_backup_addr;
+    struct sockaddr_in servaddr, cli_addr, proxy_backup_addr, server2;
     prefix *pre;
     dt_info *buf;
     
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    sockfd[0] = socket(AF_INET, SOCK_STREAM, 0);
 
-    if (sockfd == -1) {
+    if (sockfd[0] == -1) {
         printf("socket creation failed...\n");
         exit(0);
     }
     else
         printf("Socket successfully created..\n");
     
-    proxy_hd_fd = socket(AF_INET, SOCK_STREAM, 0);      //no use
-    if (proxy_hd_fd == -1) {
+    sockfd[1] = socket(AF_INET, SOCK_STREAM, 0);      //no use
+    if (sockfd[1] == -1) {
         printf("proxy_hd_fd creation failed...\n");
         exit(0);
     }
@@ -233,22 +263,36 @@ int main()
     servaddr.sin_family = AF_INET;
     servaddr.sin_addr.s_addr = inet_addr("140.96.29.50");
     servaddr.sin_port = htons(PORT);
+
+    /******server2*****/
+    bzero(&server2, sizeof(server2));
+    server2.sin_family = AF_INET;
+    server2.sin_addr.s_addr = inet_addr("140.96.29.50");
+    server2.sin_port = htons(8888);
+    
     // assign host IP, PORT
 	bzero(&cli_addr, sizeof(cli_addr));  
 	cli_addr.sin_family = AF_INET;  
 	cli_addr.sin_addr.s_addr = inet_addr("192.168.90.95");  
 	cli_addr.sin_port = htons(2552);  
-	bind(sockfd, (struct sockaddr*)&cli_addr, sizeof(cli_addr));
+	bind(sockfd[0], (struct sockaddr*)&cli_addr, sizeof(cli_addr));
+
+    bzero(&cli_addr, sizeof(cli_addr));  
+	cli_addr.sin_family = AF_INET;  
+	cli_addr.sin_addr.s_addr = inet_addr("192.168.90.95");  
+	cli_addr.sin_port = htons(2553);  
+	bind(sockfd[1], (struct sockaddr*)&cli_addr, sizeof(cli_addr));
+
 
     // connect the client socket to server socket 
-    if (connect(sockfd, (SA*)&servaddr, sizeof(servaddr)) != 0) {
+    if (connect(sockfd[0], (SA*)&servaddr, sizeof(servaddr)) != 0) {
         printf("connection with the server failed...\n");
         exit(0);
     }
     else
         printf("connected to the server..\n");
 
-    if (connect(proxy_hd_fd, (SA*)&proxy_backup_addr, sizeof(proxy_backup_addr)) != 0) {    //no use
+    if (connect(sockfd[1], (SA*)&server2, sizeof(server2)) != 0) {    //no use
         printf("connection with the proxy failed 1...\n");
         exit(0);
     }
@@ -268,7 +312,8 @@ int main()
     func(sockfd, proxy_dt_fd, data, pre, buf);
     dump_send(sockfd,proxy_dt_fd,data,pre,buf);
 
-	tcp_repair_on(sockfd);
+    for(int i = 0; i < conn_size; i++)  //there are two connections.
+	    tcp_repair_on(sockfd[i]);
 
     system("sudo /etc/init.d/keepalived restart"); //transfer VIP to backup
 

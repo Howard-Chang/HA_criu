@@ -147,13 +147,25 @@ void libsoccr_resume(struct libsoccr_sk *sk)
 void libsoccr_release(struct libsoccr_sk *sk)
 {
 	if (sk->flags & SK_FLAG_FREE_RQ)
+	{
+		printf("GGGGGGGGGG\n");
 		free(sk->recv_queue);
+	}
 	if (sk->flags & SK_FLAG_FREE_SQ)
+	{
+		printf("AAAAAAAA\n");
 		free(sk->send_queue);
+	}
 	if (sk->flags & SK_FLAG_FREE_SA)
+	{
+		printf("BBBBBBBBBBBBB\n");
 		free(sk->src_addr);
+	}
 	if (sk->flags & SK_FLAG_FREE_DA)
+	{
+		printf("CCCCCCCC\n");
 		free(sk->dst_addr);
+	}
 	free(sk);
 }
 
@@ -347,7 +359,7 @@ static int get_queue(int sk, int queue_id,
 		 */
 		buf = malloc(len + 1);
 		if (!buf) {
-			loge("Unable to allocate memory\n");
+			printf("Unable to allocate memory\n");
 			goto err_buf;
 		}
 
@@ -362,12 +374,12 @@ static int get_queue(int sk, int queue_id,
 	return 0;
 
 err_sopt:
-	logerr("\tsockopt failed");
+	printf("\tsockopt failed");
 err_buf:
 	return -1;
 
 err_recv:
-	logerr("\trecv failed (%d, want %d)", ret, len);
+	printf("\trecv failed (%d, want %d)", ret, len);
 	free(buf);
 	goto err_buf;
 }
@@ -376,6 +388,15 @@ err_recv:
  * This is how much data we've had in the initial libsoccr
  */
 #define SOCR_DATA_MIN_SIZE	(17 * sizeof(__u32))
+
+void print_qdata1(struct libsoccr_sk_data *data, struct libsoccr_sk* sk)
+{
+	char out_q[80], in_q[80];
+	snprintf(out_q, data->outq_len+1, "%s", sk->send_queue );
+	snprintf(in_q, data->inq_len+1, "%s", sk->recv_queue );
+	printf("in_q:%s\t", in_q);
+	printf("out_q:%s\n", out_q);
+}
 
 int libsoccr_save(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, unsigned data_size)
 {
@@ -405,6 +426,7 @@ int libsoccr_save(struct libsoccr_sk *sk, struct libsoccr_sk_data *data, unsigne
 	if (get_queue(sk->fd, TCP_SEND_QUEUE, &data->outq_seq, data->outq_len, &sk->send_queue))
 		return -6;
 
+	print_qdata1(data, sk);
 	printf("inq_seq:%u  outq_seq:%u\n",data->inq_seq,data->outq_seq);
 
 
